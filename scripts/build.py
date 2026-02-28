@@ -124,9 +124,8 @@ def build(onefile=True, console=False):
     else:
         cmd.append("--console")
 
-    # Hidden imports для yt-dlp и PySide6
+    # Hidden imports для PySide6 и requests
     hidden = [
-        "yt_dlp",
         "requests",
         "PySide6.QtCore",
         "PySide6.QtGui",

@@ -97,6 +97,7 @@ class MainWindow(QMainWindow):
         self.loader_thread.clip_ready.connect(self._on_clip_ready)
         self.loader_thread.finished_loading.connect(self._on_loading_finished)
         self.loader_thread.error_occurred.connect(self._on_error)
+        self.loader_thread.progress.connect(self._on_progress)
         self.loader_thread.start()
 
     def _on_clip_ready(self, clip):
@@ -120,6 +121,9 @@ class MainWindow(QMainWindow):
             f"Готово! Загружено клипов: {len(self.clip_widgets)}"
         )
         self._load_visible_images()
+
+    def _on_progress(self, count):
+        self.status_label.setText(f"Получено клипов с Twitch: {count}...")
 
     def _on_error(self, error_msg):
         self.load_btn.setEnabled(True)
