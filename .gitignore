@@ -1,3 +1,10 @@
 __pycache__
 *.code-workspace
 .fuse_hidden*
+dist/
+build/
+*.spec
+.venv
+venv
+env
+.env
