@@ -1,17 +1,13 @@
-import sys
-import requests
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget,
+    QMainWindow, QWidget,
     QVBoxLayout, QScrollArea, QLabel,
     QPushButton, QLineEdit, QHBoxLayout
 )
-from PySide6.QtGui import QPixmap
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtMultimedia import QMediaPlayer
-from PySide6.QtMultimediaWidgets import QVideoWidget
-from yt_dlp import YoutubeDL
+from PySide6.QtCore import Qt, QTimer
 from ClipWidget import ClipWidget
 from ClipLoaderThread import ClipLoaderThread
+from ImageLoaderThread import ImageLoaderThread
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -41,14 +37,20 @@ class MainWindow(QMainWindow):
 
         self.main_layout.addLayout(top_layout)
 
+        # Статус
+        self.status_label = QLabel("")
+        self.main_layout.addWidget(self.status_label)
+
         # Scroll area
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
 
         self.scroll_container = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_container)
+        self.scroll_layout.addStretch()
 
         self.scroll.setWidget(self.scroll_container)
+        self.scroll.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
         self.main_layout.addWidget(self.scroll)
 
@@ -59,33 +61,105 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.publish_btn)
 
         self.clip_widgets = []
+        self.loader_thread = None
+
+        # Фоновый поток для загрузки картинок
+        self.image_loader = ImageLoaderThread()
+        self.image_loader.image_loaded.connect(self._on_image_loaded)
+        self.image_loader.start()
+
+        # Таймер для ленивой подгрузки картинок при скролле
+        self._scroll_timer = QTimer()
+        self._scroll_timer.setSingleShot(True)
+        self._scroll_timer.setInterval(150)
+        self._scroll_timer.timeout.connect(self._load_visible_images)
 
     def load_clips(self):
-        url = self.input_line.text().strip()
-        if not url:
+        channel = self.input_line.text().strip()
+        if not channel:
             return
 
         self.load_btn.setEnabled(False)
+        self.status_label.setText("Загрузка клипов...")
 
-
-        self.loader_thread = ClipLoaderThread(url, self)
-        self.loader_thread.clips_loaded.connect(self.on_clips_loaded)
-        self.loader_thread.start()
-
-    def on_clips_loaded(self, clips):
+        # Очистить старые виджеты
         for widget in self.clip_widgets:
             widget.deleteLater()
         self.clip_widgets.clear()
-        for clip in clips:
-            print(clip)
-            widget = ClipWidget(
-                clip["title"],
-                clip["thumbnail"],
-                clip["video_url"],
-                clip["timestamp"]
-            )
-            self.scroll_layout.addWidget(widget)
+        self.image_loader.clear_queue()
+
+        self.loader_thread = ClipLoaderThread(channel)
+        self.loader_thread.clip_ready.connect(self._on_clip_ready)
+        self.loader_thread.finished_loading.connect(self._on_loading_finished)
+        self.loader_thread.error_occurred.connect(self._on_error)
+        self.loader_thread.start()
+
+    def _on_clip_ready(self, clip):
+        widget = ClipWidget(
+            clip["title"],
+            clip["thumbnail"],
+            clip["video_url"],
+            clip["timestamp"]
+        )
+        self.scroll_layout.insertWidget(self.scroll_layout.count() - 1, widget)
+        self.clip_widgets.append(widget)
+
+        self.status_label.setText(f"Загружено клипов: {len(self.clip_widgets)}")
+
+        # Подгружаем картинку если виджет виден
+        self._schedule_image_load(widget)
+
+    def _on_loading_finished(self):
         self.load_btn.setEnabled(True)
+        self.status_label.setText(
+            f"Готово! Загружено клипов: {len(self.clip_widgets)}"
+        )
+        self._load_visible_images()
+
+    def _on_error(self, error_msg):
+        self.load_btn.setEnabled(True)
+        self.status_label.setText(f"Ошибка: {error_msg}")
+
+    def _on_scroll(self):
+        self._scroll_timer.start()
+
+    def _load_visible_images(self):
+        if not self.clip_widgets:
+            return
+
+        viewport = self.scroll.viewport()
+        viewport_height = viewport.height()
+        margin = viewport_height
+
+        visible = []
+        for w in self.clip_widgets:
+            if w.image_loaded:
+                continue
+            try:
+                pos = w.mapTo(viewport, w.rect().topLeft())
+                bottom = pos.y() + w.height()
+                if -margin <= pos.y() <= viewport_height + margin or \
+                   -margin <= bottom <= viewport_height + margin:
+                    visible.append(w)
+            except RuntimeError:
+                continue
+
+        if visible:
+            self.image_loader.enqueue_batch(visible)
+
+    def _schedule_image_load(self, widget):
+        if widget.image_loaded or not widget.thumbnail_url:
+            return
+        viewport = self.scroll.viewport()
+        try:
+            pos = widget.mapTo(viewport, widget.rect().topLeft())
+            if -200 <= pos.y() <= viewport.height() + 200:
+                self.image_loader.enqueue(widget)
+        except RuntimeError:
+            pass
+
+    def _on_image_loaded(self, widget, pixmap):
+        widget.set_image(pixmap)
 
     def publish_selected(self):
         selected = [
@@ -103,38 +177,9 @@ class MainWindow(QMainWindow):
 
         # Здесь потом будет реальный upload на YouTube
 
-
-    def get_clips(self, channel_url):
-
-        ydl_opts = {
-            "extract_flat": True,
-        }
-        
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(
-                "https://www.twitch.tv/" + channel_url + "/videos?filter=clips&range=all",
-                download=False
-            )
-
-        entries = info["entries"] if "entries" in info else [info]
-
-        clips = [
-            {
-                "title": entry["title"],
-                "thumbnail": entry.get("thumbnail", None),
-                "video_url": entry["url"],
-                "timestamp": entry.get("timestamp"),
-            }
-            for entry in entries
-        ]
-        clips.sort(key=lambda clip: clip["timestamp"], reverse=True)
-        return clips
-
-
-    def load_image_for_widget(self, widget):
-        thread = ImageLoaderThread(widget, widget.thumbnail_url)
-        thread.image_loaded.connect(self.on_image_loaded)
-        thread.start()
-
-    def on_image_loaded(self, widget, pixmap):
-        widget.set_image(pixmap)
+    def closeEvent(self, event):
+        self.image_loader.stop()
+        if self.loader_thread and self.loader_thread.isRunning():
+            self.loader_thread.quit()
+            self.loader_thread.wait()
+        super().closeEvent(event)

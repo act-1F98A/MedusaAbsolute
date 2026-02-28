@@ -1,73 +1,69 @@
 from PySide6.QtGui import QPixmap
-from PySide6.QtCore import Qt, QUrl, QThread, Signal
+from PySide6.QtCore import QThread, Signal, QMutex, QWaitCondition
 import requests
 
+
 class ImageLoaderThread(QThread):
-    def __init__(self, main_window):
-        self.main_window = main_window
-        self.queue = []
-        self.loading = False
+    image_loaded = Signal(object, QPixmap)
 
-    def update_queue(self):
-        widgets = self.main_window.clip_widgets
-        if not widgets:
-            return
+    def __init__(self):
+        super().__init__()
+        self._queue = []
+        self._mutex = QMutex()
+        self._condition = QWaitCondition()
+        self._running = True
 
-        scroll = self.main_window.scroll
-        viewport = scroll.viewport()
+    def enqueue(self, widget):
+        self._mutex.lock()
+        if widget not in self._queue:
+            self._queue.append(widget)
+        self._mutex.unlock()
+        self._condition.wakeOne()
 
-        # Найдём видимые индексы
-        first_visible = None
-        last_visible = None
+    def enqueue_batch(self, widgets):
+        self._mutex.lock()
+        for w in widgets:
+            if w not in self._queue:
+                self._queue.append(w)
+        self._mutex.unlock()
+        self._condition.wakeOne()
 
-        for i, w in enumerate(widgets):
-            pos = w.mapTo(viewport, w.rect().topLeft())
-            if 0 <= pos.y() <= viewport.height():
-                if first_visible is None:
-                    first_visible = i
-                last_visible = i
+    def clear_queue(self):
+        self._mutex.lock()
+        self._queue.clear()
+        self._mutex.unlock()
 
-        if first_visible is None:
-            return
+    def stop(self):
+        self._running = False
+        self._condition.wakeOne()
+        self.wait()
 
-        start = max(0, first_visible - 20)
-        end = min(len(widgets) - 1, last_visible + 20)
+    def run(self):
+        while self._running:
+            self._mutex.lock()
+            if not self._queue:
+                self._condition.wait(self._mutex)
+            if not self._running:
+                self._mutex.unlock()
+                break
+            if not self._queue:
+                self._mutex.unlock()
+                continue
+            widget = self._queue.pop(0)
+            self._mutex.unlock()
 
-        center_y = viewport.height() // 2
-
-        candidates = []
-
-        for i in range(start, end + 1):
-            w = widgets[i]
-            if w.image_loaded:
+            if widget.image_loaded:
                 continue
 
-            pos = w.mapTo(viewport, w.rect().center())
-            distance = abs(pos.y() - center_y)
+            url = widget.thumbnail_url
+            if not url:
+                continue
 
-            candidates.append((distance, w))
-
-        candidates.sort(key=lambda x: x[0])
-
-        self.queue = [w for _, w in candidates]
-
-        if not self.loading:
-            self.load_next()
-
-    def load_next(self):
-        if not self.queue:
-            self.loading = False
-            return
-
-        self.loading = True
-        widget = self.queue.pop(0)
-
-        thread = ImageLoaderThread(widget, widget.thumbnail_url)
-        thread.image_loaded.connect(self.on_image_loaded)
-        thread.start()
-
-        self.current_thread = thread
-
-    def on_image_loaded(self, widget, pixmap):
-        widget.set_image(pixmap)
-        self.load_next()
+            try:
+                response = requests.get(url, timeout=10)
+                pixmap = QPixmap()
+                pixmap.loadFromData(response.content)
+                if not pixmap.isNull():
+                    self.image_loaded.emit(widget, pixmap)
+            except Exception:
+                pass

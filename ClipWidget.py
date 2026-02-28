@@ -1,23 +1,19 @@
 from PySide6.QtWidgets import (
-        QApplication, QMainWindow, QWidget,
-    QVBoxLayout, QScrollArea, QLabel,
-    QPushButton, QLineEdit, QHBoxLayout,
+    QWidget, QVBoxLayout, QLabel,
+    QLineEdit, QHBoxLayout,
     QTextEdit, QCheckBox
 )
 from datetime import datetime
 from PySide6.QtGui import QPixmap, QFontMetrics
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtMultimedia import QMediaPlayer
-from PySide6.QtMultimediaWidgets import QVideoWidget
-import requests
+from PySide6.QtCore import Qt
+
 
 class ClipWidget(QWidget):
     def __init__(self, title, thumbnail_url, video_url, timestamp):
         super().__init__()
-        
 
         self.image_loaded = False
-        
+        self.thumbnail_url = thumbnail_url
         self.video_url = video_url
 
         main_layout = QHBoxLayout(self)
@@ -37,16 +33,11 @@ class ClipWidget(QWidget):
         container_layout = QVBoxLayout(self.preview_container)
         container_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.thumbnail = QLabel("Loading...")
-        self.thumbnail.setFixedSize(320, 180)
-        self.thumbnail.setAlignment(Qt.AlignCenter)
-        # pixmap = self.load_image(thumbnail_url)
-        # if pixmap:
-            # self.thumbnail.setPixmap(
-                # pixmap.scaled(320, 180, Qt.KeepAspectRatio)
-            # )
+        self.thumbnail_label = QLabel("Loading...")
+        self.thumbnail_label.setFixedSize(320, 180)
+        self.thumbnail_label.setAlignment(Qt.AlignCenter)
 
-        container_layout.addWidget(self.thumbnail)
+        container_layout.addWidget(self.thumbnail_label)
 
         self.date_label = QLabel(self.preview_container)
         self.date_label.setStyleSheet(
@@ -57,7 +48,7 @@ class ClipWidget(QWidget):
             "outline: none;"
         )
         self.date_label.setAlignment(Qt.AlignRight)
-        
+
         if timestamp:
             dt = datetime.fromtimestamp(timestamp)
             self.date_label.setText(dt.strftime("%H:%M %d.%m.%Y"))
@@ -90,17 +81,13 @@ class ClipWidget(QWidget):
 
         main_layout.addLayout(right_layout)
 
-
         self.setStyleSheet("border: 1px solid gray; padding: 6px;")
 
-    def load_image(self, url):
-        try:
-            response = requests.get(url)
-            pixmap = QPixmap()
-            pixmap.loadFromData(response.content)
-            return pixmap
-        except:
-            return None
+    def set_image(self, pixmap):
+        self.image_loaded = True
+        self.thumbnail_label.setPixmap(
+            pixmap.scaled(320, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
 
     def is_selected(self):
         return self.checkbox.isChecked()
