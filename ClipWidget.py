@@ -41,7 +41,7 @@ class ClipWidget(QWidget):
 
         self.date_label = QLabel(self.preview_container)
         self.date_label.setStyleSheet(
-            "color: #222222;"
+            "color: #FFF;"
             "background-color: rgba(0,0,0,120);"
             "border-radius: 10px;"
             "border: none;"
