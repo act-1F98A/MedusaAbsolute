@@ -82,6 +82,11 @@ class MainWindow(QMainWindow):
         self.load_btn.setEnabled(False)
         self.status_label.setText("Загрузка клипов...")
 
+        # Остановить предыдущую загрузку если идёт
+        if self.loader_thread and self.loader_thread.isRunning():
+            self.loader_thread.stop()
+            self.loader_thread.wait()
+
         # Очистить старые виджеты
         for widget in self.clip_widgets:
             widget.deleteLater()
@@ -180,6 +185,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.image_loader.stop()
         if self.loader_thread and self.loader_thread.isRunning():
-            self.loader_thread.quit()
+            self.loader_thread.stop()
             self.loader_thread.wait()
         super().closeEvent(event)
