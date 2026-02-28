@@ -1,7 +1,7 @@
 from PySide6.QtCore import QThread, Signal
 from yt_dlp import YoutubeDL
 
-BATCH_SIZE = 20
+EMIT_BATCH = 20
 
 
 class ClipLoaderThread(QThread):
@@ -19,38 +19,32 @@ class ClipLoaderThread(QThread):
 
     def run(self):
         try:
-            base_url = f"https://www.twitch.tv/{self.channel_name}/videos?filter=clips&range=all"
-            offset = 1
+            url = f"https://www.twitch.tv/{self.channel_name}/videos?filter=clips&range=all"
+            ydl_opts = {"extract_flat": True}
 
-            while not self._stopped:
-                ydl_opts = {
-                    "extract_flat": True,
-                    "playliststart": offset,
-                    "playlistend": offset + BATCH_SIZE - 1,
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+            if self._stopped:
+                return
+
+            entries = info.get("entries") or []
+
+            clips = [
+                {
+                    "title": entry.get("title", ""),
+                    "thumbnail": entry.get("thumbnail"),
+                    "video_url": entry.get("url", ""),
+                    "timestamp": entry.get("timestamp"),
                 }
+                for entry in entries
+            ]
+            clips.sort(key=lambda c: c.get("timestamp") or 0, reverse=True)
 
-                with YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(base_url, download=False)
-
-                entries = info.get("entries") or []
-                if not entries:
+            for clip in clips:
+                if self._stopped:
                     break
-
-                for entry in entries:
-                    if self._stopped:
-                        break
-                    clip = {
-                        "title": entry.get("title", ""),
-                        "thumbnail": entry.get("thumbnail"),
-                        "video_url": entry.get("url", ""),
-                        "timestamp": entry.get("timestamp"),
-                    }
-                    self.clip_ready.emit(clip)
-
-                if len(entries) < BATCH_SIZE:
-                    break
-
-                offset += BATCH_SIZE
+                self.clip_ready.emit(clip)
 
         except Exception as e:
             if not self._stopped:
