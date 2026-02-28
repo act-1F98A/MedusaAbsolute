@@ -111,8 +111,8 @@ class MainWindow(QMainWindow):
 
         self.status_label.setText(f"Загружено клипов: {len(self.clip_widgets)}")
 
-        # Подгружаем картинку если виджет виден
-        self._schedule_image_load(widget)
+        # Подгружаем картинки видимых виджетов
+        self._load_visible_images()
 
     def _on_loading_finished(self):
         self.load_btn.setEnabled(True)
@@ -134,34 +134,27 @@ class MainWindow(QMainWindow):
 
         viewport = self.scroll.viewport()
         viewport_height = viewport.height()
+        center_y = viewport_height // 2
         margin = viewport_height
 
-        visible = []
+        candidates = []
         for w in self.clip_widgets:
-            if w.image_loaded:
+            if w.image_loaded or not w.thumbnail_url:
                 continue
             try:
                 pos = w.mapTo(viewport, w.rect().topLeft())
-                bottom = pos.y() + w.height()
+                widget_center_y = pos.y() + w.height() // 2
                 if -margin <= pos.y() <= viewport_height + margin or \
-                   -margin <= bottom <= viewport_height + margin:
-                    visible.append(w)
+                   -margin <= (pos.y() + w.height()) <= viewport_height + margin:
+                    distance = abs(widget_center_y - center_y)
+                    candidates.append((distance, w))
             except RuntimeError:
                 continue
 
-        if visible:
-            self.image_loader.enqueue_batch(visible)
+        candidates.sort(key=lambda x: x[0])
 
-    def _schedule_image_load(self, widget):
-        if widget.image_loaded or not widget.thumbnail_url:
-            return
-        viewport = self.scroll.viewport()
-        try:
-            pos = widget.mapTo(viewport, widget.rect().topLeft())
-            if -200 <= pos.y() <= viewport.height() + 200:
-                self.image_loader.enqueue(widget)
-        except RuntimeError:
-            pass
+        if candidates:
+            self.image_loader.set_queue([w for _, w in candidates])
 
     def _on_image_loaded(self, widget, pixmap):
         widget.set_image(pixmap)

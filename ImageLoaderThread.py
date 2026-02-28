@@ -1,3 +1,5 @@
+from collections import deque
+
 from PySide6.QtGui import QPixmap
 from PySide6.QtCore import QThread, Signal, QMutex, QWaitCondition
 import requests
@@ -8,7 +10,7 @@ class ImageLoaderThread(QThread):
 
     def __init__(self):
         super().__init__()
-        self._queue = []
+        self._queue = deque()
         self._mutex = QMutex()
         self._condition = QWaitCondition()
         self._running = True
@@ -16,15 +18,13 @@ class ImageLoaderThread(QThread):
     def enqueue(self, widget):
         self._mutex.lock()
         if widget not in self._queue:
-            self._queue.append(widget)
+            self._queue.appendleft(widget)
         self._mutex.unlock()
         self._condition.wakeOne()
 
-    def enqueue_batch(self, widgets):
+    def set_queue(self, widgets):
         self._mutex.lock()
-        for w in widgets:
-            if w not in self._queue:
-                self._queue.append(w)
+        self._queue = deque(widgets)
         self._mutex.unlock()
         self._condition.wakeOne()
 
@@ -49,7 +49,7 @@ class ImageLoaderThread(QThread):
             if not self._queue:
                 self._mutex.unlock()
                 continue
-            widget = self._queue.pop(0)
+            widget = self._queue.popleft()
             self._mutex.unlock()
 
             if widget.image_loaded:

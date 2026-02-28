@@ -27,8 +27,6 @@ class ClipLoaderThread(QThread):
                     "extract_flat": True,
                     "playliststart": offset,
                     "playlistend": offset + BATCH_SIZE - 1,
-                    "quiet": True,
-                    "no_warnings": True,
                 }
 
                 with YoutubeDL(ydl_opts) as ydl:
